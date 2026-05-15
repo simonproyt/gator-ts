@@ -22,6 +22,13 @@
       "when": 1778820975750,
       "tag": "0002_steep_blur",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778822024066,
+      "tag": "0003_lowly_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

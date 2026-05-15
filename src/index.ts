@@ -7,7 +7,10 @@ import {
   getFeedByUrl,
   getFeedFollowsForUser,
   getFeedsWithUsers,
+  getNextFeedToFetch,
+  markFeedFetched,
 } from "./lib/db/queries/feeds";
+import { createPost, getPostByUrl, getPostsForUser } from "./lib/db/queries/posts";
 import { fetchFeed } from "./rss";
 import { feeds, users } from "./schema";
 
@@ -126,6 +129,23 @@ async function handlerFollowing(cmdName: string, user: User, ...args: string[]):
   });
 }
 
+async function handlerBrowse(cmdName: string, user: User, ...args: string[]): Promise<void> {
+  const limit = args.length > 0 ? Number(args[0]) : 2;
+  if (Number.isNaN(limit) || limit <= 0) {
+    throw new Error("Browse limit must be a positive number.");
+  }
+
+  const posts = await getPostsForUser(user.id, limit);
+  posts.forEach((post) => {
+    console.log(`* [${post.feedName}] ${post.title}`);
+    console.log(`  ${post.url}`);
+    if (post.description) {
+      console.log(`  ${post.description}`);
+    }
+    console.log(`  published_at: ${post.publishedAt}`);
+  });
+}
+
 async function handlerUnfollow(cmdName: string, user: User, ...args: string[]): Promise<void> {
   if (args.length === 0) {
     throw new Error("The unfollow command requires a feed url.");
@@ -148,9 +168,95 @@ async function handlerFeeds(cmdName: string, ...args: string[]): Promise<void> {
   });
 }
 
+function parseDuration(durationStr: string): number {
+  const regex = /^(\d+)(ms|s|m|h)$/;
+  const match = durationStr.match(regex);
+  if (!match) {
+    throw new Error("Invalid duration string. Use formats like 1s, 1m, 1h, or 100ms.");
+  }
+
+  const value = Number(match[1]);
+  const unit = match[2];
+
+  switch (unit) {
+    case "ms":
+      return value;
+    case "s":
+      return value * 1000;
+    case "m":
+      return value * 60 * 1000;
+    case "h":
+      return value * 60 * 60 * 1000;
+    default:
+      throw new Error("Unsupported duration unit.");
+  }
+}
+
+function parsePublishedAt(publishedAt: string): Date {
+  const parsed = new Date(publishedAt);
+  if (Number.isNaN(parsed.valueOf())) {
+    console.warn(`Warning: could not parse publishedAt '${publishedAt}', using current time.`);
+    return new Date();
+  }
+  return parsed;
+}
+
+async function scrapeFeeds(): Promise<void> {
+  const nextFeed = await getNextFeedToFetch();
+  if (!nextFeed) {
+    console.log("No feeds available to fetch.");
+    return;
+  }
+
+  console.log(`Fetching feed: ${nextFeed.name} (${nextFeed.url})`);
+  await markFeedFetched(nextFeed.id);
+
+  const feedData = await fetchFeed(nextFeed.url);
+  for (const item of feedData.channel.item) {
+    const existingPost = await getPostByUrl(item.link);
+    if (existingPost) {
+      continue;
+    }
+
+    const publishedAt = parsePublishedAt(item.pubDate);
+    const createdPost = await createPost(
+      item.title,
+      item.link,
+      item.description,
+      publishedAt,
+      nextFeed.id,
+    );
+    console.log(`Saved post: ${createdPost.title}`);
+  }
+}
+
 async function handlerAgg(cmdName: string, ...args: string[]): Promise<void> {
-  const feed = await fetchFeed("https://www.wagslane.dev/index.xml");
-  console.log(JSON.stringify(feed, null, 2));
+  if (args.length === 0) {
+    throw new Error("The agg command requires a time_between_reqs argument.");
+  }
+
+  const durationStr = args[0];
+  const intervalMs = parseDuration(durationStr);
+  console.log(`Collecting feeds every ${durationStr}`);
+
+  const handleError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error scraping feeds: ${message}`);
+  };
+
+  await scrapeFeeds();
+
+  const interval = setInterval(() => {
+    scrapeFeeds().catch(handleError);
+  }, intervalMs);
+
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => {
+      console.log("Shutting down feed aggregator...");
+      clearInterval(interval);
+      resolve();
+    });
+  });
 }
 
 async function handlerReset(cmdName: string, ...args: string[]): Promise<void> {
@@ -180,6 +286,7 @@ async function main() {
   registerCommand(registry, "addfeed", middlewareLoggedIn(handlerAddFeed));
   registerCommand(registry, "follow", middlewareLoggedIn(handlerFollow));
   registerCommand(registry, "following", middlewareLoggedIn(handlerFollowing));
+  registerCommand(registry, "browse", middlewareLoggedIn(handlerBrowse));
   registerCommand(registry, "unfollow", middlewareLoggedIn(handlerUnfollow));
   registerCommand(registry, "reset", handlerReset);
   registerCommand(registry, "agg", handlerAgg);
