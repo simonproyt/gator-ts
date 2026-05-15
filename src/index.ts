@@ -1,35 +1,61 @@
 import { readConfig, setUser } from "./config";
+import { createUser, getUserByName } from "./lib/db/queries/users";
 
-export type CommandHandler = (cmdName: string, ...args: string[]) => void;
+export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
 export type CommandsRegistry = Record<string, CommandHandler>;
 
-function handlerLogin(cmdName: string, ...args: string[]): void {
+async function handlerLogin(cmdName: string, ...args: string[]): Promise<void> {
   if (args.length === 0) {
     throw new Error("The login command requires a username.");
   }
 
   const userName = args[0];
+  const user = await getUserByName(userName);
+  if (!user) {
+    throw new Error(`User '${userName}' does not exist.`);
+  }
+
   const config = readConfig();
   setUser(config, userName);
   console.log(`Current user set to ${userName}`);
+}
+
+async function handlerRegister(cmdName: string, ...args: string[]): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("The register command requires a username.");
+  }
+
+  const userName = args[0];
+  const existingUser = await getUserByName(userName);
+  if (existingUser) {
+    throw new Error(`User '${userName}' already exists.`);
+  }
+
+  const createdUser = await createUser(userName);
+  const config = readConfig();
+  setUser(config, userName);
+
+  console.log(`User created: ${userName}`);
+  console.log(createdUser);
 }
 
 function registerCommand(registry: CommandsRegistry, cmdName: string, handler: CommandHandler): void {
   registry[cmdName] = handler;
 }
 
-function runCommand(registry: CommandsRegistry, cmdName: string, ...args: string[]): void {
+async function runCommand(registry: CommandsRegistry, cmdName: string, ...args: string[]): Promise<void> {
   const handler = registry[cmdName];
   if (!handler) {
     throw new Error(`Unknown command: ${cmdName}`);
   }
 
-  handler(cmdName, ...args);
+  await handler(cmdName, ...args);
 }
 
-function main() {
+async function main() {
   const registry: CommandsRegistry = {};
   registerCommand(registry, "login", handlerLogin);
+  registerCommand(registry, "register", handlerRegister);
 
   const inputArgs = process.argv.slice(2);
   if (inputArgs.length === 0) {
@@ -39,7 +65,8 @@ function main() {
 
   const [cmdName, ...cmdArgs] = inputArgs;
   try {
-    runCommand(registry, cmdName, ...cmdArgs);
+    await runCommand(registry, cmdName, ...cmdArgs);
+    process.exit(0);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${message}`);
