@@ -3,6 +3,7 @@ import { createUser, getUserByName, getUsers, resetUsers } from "./lib/db/querie
 import {
   createFeed,
   createFeedFollow,
+  deleteFeedFollowByUserAndFeedUrl,
   getFeedByUrl,
   getFeedFollowsForUser,
   getFeedsWithUsers,
@@ -125,6 +126,20 @@ async function handlerFollowing(cmdName: string, user: User, ...args: string[]):
   });
 }
 
+async function handlerUnfollow(cmdName: string, user: User, ...args: string[]): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("The unfollow command requires a feed url.");
+  }
+
+  const feedUrl = args[0];
+  const deleted = await deleteFeedFollowByUserAndFeedUrl(user.id, feedUrl);
+  if (!deleted) {
+    throw new Error(`No follow record found for url '${feedUrl}' and current user.`);
+  }
+
+  console.log(`Unfollowed feed '${feedUrl}' for ${user.name}`);
+}
+
 async function handlerFeeds(cmdName: string, ...args: string[]): Promise<void> {
   const feeds = await getFeedsWithUsers();
   feeds.forEach((feed) => {
@@ -165,6 +180,7 @@ async function main() {
   registerCommand(registry, "addfeed", middlewareLoggedIn(handlerAddFeed));
   registerCommand(registry, "follow", middlewareLoggedIn(handlerFollow));
   registerCommand(registry, "following", middlewareLoggedIn(handlerFollowing));
+  registerCommand(registry, "unfollow", middlewareLoggedIn(handlerUnfollow));
   registerCommand(registry, "reset", handlerReset);
   registerCommand(registry, "agg", handlerAgg);
 
