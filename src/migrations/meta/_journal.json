@@ -15,6 +15,13 @@
       "when": 1778820032489,
       "tag": "0001_tense_kulan_gath",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778820975750,
+      "tag": "0002_steep_blur",
+      "breakpoints": true
     }
   ]
 }

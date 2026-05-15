@@ -1,6 +1,12 @@
 import { readConfig, setUser } from "./config";
 import { createUser, getUserByName, getUsers, resetUsers } from "./lib/db/queries/users";
-import { createFeed, getFeedsWithUsers } from "./lib/db/queries/feeds";
+import {
+  createFeed,
+  createFeedFollow,
+  getFeedByUrl,
+  getFeedFollowsForUser,
+  getFeedsWithUsers,
+} from "./lib/db/queries/feeds";
 import { fetchFeed } from "./rss";
 import { feeds, users } from "./schema";
 
@@ -82,7 +88,51 @@ async function handlerAddFeed(cmdName: string, ...args: string[]): Promise<void>
   }
 
   const createdFeed = await createFeed(feedName, feedUrl, currentUser.id);
+  const feedFollow = await createFeedFollow(currentUser.id, createdFeed.id);
   printFeed(createdFeed, currentUser);
+  console.log(`Feed '${feedFollow.feedName}' is now followed by ${feedFollow.userName}`);
+}
+
+async function handlerFollow(cmdName: string, ...args: string[]): Promise<void> {
+  if (args.length === 0) {
+    throw new Error("The follow command requires a feed url.");
+  }
+
+  const feedUrl = args[0];
+  const currentUserName = readConfig().currentUserName;
+  if (!currentUserName) {
+    throw new Error("No current user is set in the config.");
+  }
+
+  const currentUser = await getUserByName(currentUserName);
+  if (!currentUser) {
+    throw new Error(`Current user '${currentUserName}' does not exist.`);
+  }
+
+  const feed = await getFeedByUrl(feedUrl);
+  if (!feed) {
+    throw new Error(`Feed with url '${feedUrl}' does not exist.`);
+  }
+
+  const feedFollow = await createFeedFollow(currentUser.id, feed.id);
+  console.log(`Followed feed '${feedFollow.feedName}' as ${feedFollow.userName}`);
+}
+
+async function handlerFollowing(cmdName: string, ...args: string[]): Promise<void> {
+  const currentUserName = readConfig().currentUserName;
+  if (!currentUserName) {
+    throw new Error("No current user is set in the config.");
+  }
+
+  const currentUser = await getUserByName(currentUserName);
+  if (!currentUser) {
+    throw new Error(`Current user '${currentUserName}' does not exist.`);
+  }
+
+  const follows = await getFeedFollowsForUser(currentUser.id);
+  follows.forEach((follow) => {
+    console.log(`* ${follow.feedName}`);
+  });
 }
 
 async function handlerFeeds(cmdName: string, ...args: string[]): Promise<void> {
@@ -123,6 +173,8 @@ async function main() {
   registerCommand(registry, "users", handlerUsers);
   registerCommand(registry, "feeds", handlerFeeds);
   registerCommand(registry, "addfeed", handlerAddFeed);
+  registerCommand(registry, "follow", handlerFollow);
+  registerCommand(registry, "following", handlerFollowing);
   registerCommand(registry, "reset", handlerReset);
   registerCommand(registry, "agg", handlerAgg);
 
