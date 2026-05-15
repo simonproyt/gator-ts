@@ -1,8 +1,13 @@
 import { readConfig, setUser } from "./config";
-import { createUser, getUserByName, resetUsers } from "./lib/db/queries/users";
+import { createUser, getUserByName, getUsers, resetUsers } from "./lib/db/queries/users";
+import { createFeed } from "./lib/db/queries/feeds";
+import { fetchFeed } from "./rss";
+import { feeds, users } from "./schema";
 
 export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
 export type CommandsRegistry = Record<string, CommandHandler>;
+export type Feed = typeof feeds.$inferSelect;
+export type User = typeof users.$inferSelect;
 
 async function handlerLogin(cmdName: string, ...args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -39,6 +44,52 @@ async function handlerRegister(cmdName: string, ...args: string[]): Promise<void
   console.log(createdUser);
 }
 
+async function handlerUsers(cmdName: string, ...args: string[]): Promise<void> {
+  const currentUserName = readConfig().currentUserName;
+  const users = await getUsers();
+
+  users.forEach((user) => {
+    const currentTag = user.name === currentUserName ? " (current)" : "";
+    console.log(`* ${user.name}${currentTag}`);
+  });
+}
+
+function printFeed(feed: Feed, user: User): void {
+  console.log("Feed created:");
+  console.log(`- id: ${feed.id}`);
+  console.log(`- name: ${feed.name}`);
+  console.log(`- url: ${feed.url}`);
+  console.log(`- user_id: ${feed.userId}`);
+  console.log(`- created_at: ${feed.createdAt}`);
+  console.log(`- updated_at: ${feed.updatedAt}`);
+  console.log(`Added by user: ${user.name}`);
+}
+
+async function handlerAddFeed(cmdName: string, ...args: string[]): Promise<void> {
+  if (args.length < 2) {
+    throw new Error("The addfeed command requires a name and a url.");
+  }
+
+  const [feedName, feedUrl] = args;
+  const currentUserName = readConfig().currentUserName;
+  if (!currentUserName) {
+    throw new Error("No current user is set in the config.");
+  }
+
+  const currentUser = await getUserByName(currentUserName);
+  if (!currentUser) {
+    throw new Error(`Current user '${currentUserName}' does not exist.`);
+  }
+
+  const createdFeed = await createFeed(feedName, feedUrl, currentUser.id);
+  printFeed(createdFeed, currentUser);
+}
+
+async function handlerAgg(cmdName: string, ...args: string[]): Promise<void> {
+  const feed = await fetchFeed("https://www.wagslane.dev/index.xml");
+  console.log(JSON.stringify(feed, null, 2));
+}
+
 async function handlerReset(cmdName: string, ...args: string[]): Promise<void> {
   await resetUsers();
   console.log("Database reset complete.");
@@ -61,7 +112,10 @@ async function main() {
   const registry: CommandsRegistry = {};
   registerCommand(registry, "login", handlerLogin);
   registerCommand(registry, "register", handlerRegister);
+  registerCommand(registry, "users", handlerUsers);
+  registerCommand(registry, "addfeed", handlerAddFeed);
   registerCommand(registry, "reset", handlerReset);
+  registerCommand(registry, "agg", handlerAgg);
 
   const inputArgs = process.argv.slice(2);
   if (inputArgs.length === 0) {
