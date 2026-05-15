@@ -1,6 +1,6 @@
 import { readConfig, setUser } from "./config";
 import { createUser, getUserByName, getUsers, resetUsers } from "./lib/db/queries/users";
-import { createFeed } from "./lib/db/queries/feeds";
+import { createFeed, getFeedsWithUsers } from "./lib/db/queries/feeds";
 import { fetchFeed } from "./rss";
 import { feeds, users } from "./schema";
 
@@ -85,6 +85,14 @@ async function handlerAddFeed(cmdName: string, ...args: string[]): Promise<void>
   printFeed(createdFeed, currentUser);
 }
 
+async function handlerFeeds(cmdName: string, ...args: string[]): Promise<void> {
+  const feeds = await getFeedsWithUsers();
+  feeds.forEach((feed) => {
+    const creator = feed.creatorName ?? "unknown";
+    console.log(`* ${feed.feedName} - ${feed.feedUrl} (added by ${creator})`);
+  });
+}
+
 async function handlerAgg(cmdName: string, ...args: string[]): Promise<void> {
   const feed = await fetchFeed("https://www.wagslane.dev/index.xml");
   console.log(JSON.stringify(feed, null, 2));
@@ -113,6 +121,7 @@ async function main() {
   registerCommand(registry, "login", handlerLogin);
   registerCommand(registry, "register", handlerRegister);
   registerCommand(registry, "users", handlerUsers);
+  registerCommand(registry, "feeds", handlerFeeds);
   registerCommand(registry, "addfeed", handlerAddFeed);
   registerCommand(registry, "reset", handlerReset);
   registerCommand(registry, "agg", handlerAgg);
