@@ -11,9 +11,29 @@ import { fetchFeed } from "./rss";
 import { feeds, users } from "./schema";
 
 export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
+export type UserCommandHandler = (
+  cmdName: string,
+  user: User,
+  ...args: string[]
+) => Promise<void>;
+export type middlewareLoggedIn = (handler: UserCommandHandler) => CommandHandler;
 export type CommandsRegistry = Record<string, CommandHandler>;
 export type Feed = typeof feeds.$inferSelect;
 export type User = typeof users.$inferSelect;
+
+const middlewareLoggedIn: middlewareLoggedIn = (handler) => async (cmdName, ...args) => {
+  const currentUserName = readConfig().currentUserName;
+  if (!currentUserName) {
+    throw new Error("No current user is set in the config.");
+  }
+
+  const currentUser = await getUserByName(currentUserName);
+  if (!currentUser) {
+    throw new Error(`Current user '${currentUserName}' does not exist.`);
+  }
+
+  await handler(cmdName, currentUser, ...args);
+};
 
 async function handlerLogin(cmdName: string, ...args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -71,65 +91,35 @@ function printFeed(feed: Feed, user: User): void {
   console.log(`Added by user: ${user.name}`);
 }
 
-async function handlerAddFeed(cmdName: string, ...args: string[]): Promise<void> {
+async function handlerAddFeed(cmdName: string, user: User, ...args: string[]): Promise<void> {
   if (args.length < 2) {
     throw new Error("The addfeed command requires a name and a url.");
   }
 
   const [feedName, feedUrl] = args;
-  const currentUserName = readConfig().currentUserName;
-  if (!currentUserName) {
-    throw new Error("No current user is set in the config.");
-  }
-
-  const currentUser = await getUserByName(currentUserName);
-  if (!currentUser) {
-    throw new Error(`Current user '${currentUserName}' does not exist.`);
-  }
-
-  const createdFeed = await createFeed(feedName, feedUrl, currentUser.id);
-  const feedFollow = await createFeedFollow(currentUser.id, createdFeed.id);
-  printFeed(createdFeed, currentUser);
+  const createdFeed = await createFeed(feedName, feedUrl, user.id);
+  const feedFollow = await createFeedFollow(user.id, createdFeed.id);
+  printFeed(createdFeed, user);
   console.log(`Feed '${feedFollow.feedName}' is now followed by ${feedFollow.userName}`);
 }
 
-async function handlerFollow(cmdName: string, ...args: string[]): Promise<void> {
+async function handlerFollow(cmdName: string, user: User, ...args: string[]): Promise<void> {
   if (args.length === 0) {
     throw new Error("The follow command requires a feed url.");
   }
 
   const feedUrl = args[0];
-  const currentUserName = readConfig().currentUserName;
-  if (!currentUserName) {
-    throw new Error("No current user is set in the config.");
-  }
-
-  const currentUser = await getUserByName(currentUserName);
-  if (!currentUser) {
-    throw new Error(`Current user '${currentUserName}' does not exist.`);
-  }
-
   const feed = await getFeedByUrl(feedUrl);
   if (!feed) {
     throw new Error(`Feed with url '${feedUrl}' does not exist.`);
   }
 
-  const feedFollow = await createFeedFollow(currentUser.id, feed.id);
+  const feedFollow = await createFeedFollow(user.id, feed.id);
   console.log(`Followed feed '${feedFollow.feedName}' as ${feedFollow.userName}`);
 }
 
-async function handlerFollowing(cmdName: string, ...args: string[]): Promise<void> {
-  const currentUserName = readConfig().currentUserName;
-  if (!currentUserName) {
-    throw new Error("No current user is set in the config.");
-  }
-
-  const currentUser = await getUserByName(currentUserName);
-  if (!currentUser) {
-    throw new Error(`Current user '${currentUserName}' does not exist.`);
-  }
-
-  const follows = await getFeedFollowsForUser(currentUser.id);
+async function handlerFollowing(cmdName: string, user: User, ...args: string[]): Promise<void> {
+  const follows = await getFeedFollowsForUser(user.id);
   follows.forEach((follow) => {
     console.log(`* ${follow.feedName}`);
   });
@@ -172,9 +162,9 @@ async function main() {
   registerCommand(registry, "register", handlerRegister);
   registerCommand(registry, "users", handlerUsers);
   registerCommand(registry, "feeds", handlerFeeds);
-  registerCommand(registry, "addfeed", handlerAddFeed);
-  registerCommand(registry, "follow", handlerFollow);
-  registerCommand(registry, "following", handlerFollowing);
+  registerCommand(registry, "addfeed", middlewareLoggedIn(handlerAddFeed));
+  registerCommand(registry, "follow", middlewareLoggedIn(handlerFollow));
+  registerCommand(registry, "following", middlewareLoggedIn(handlerFollowing));
   registerCommand(registry, "reset", handlerReset);
   registerCommand(registry, "agg", handlerAgg);
 
