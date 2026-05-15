@@ -11,3 +11,7 @@ export async function getUserByName(name: string) {
   const [user] = await db.select().from(users).where(eq(users.name, name));
   return user;
 }
+
+export async function resetUsers() {
+  await db.delete(users);
+}

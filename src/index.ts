@@ -1,5 +1,5 @@
 import { readConfig, setUser } from "./config";
-import { createUser, getUserByName } from "./lib/db/queries/users";
+import { createUser, getUserByName, resetUsers } from "./lib/db/queries/users";
 
 export type CommandHandler = (cmdName: string, ...args: string[]) => Promise<void>;
 export type CommandsRegistry = Record<string, CommandHandler>;
@@ -39,6 +39,11 @@ async function handlerRegister(cmdName: string, ...args: string[]): Promise<void
   console.log(createdUser);
 }
 
+async function handlerReset(cmdName: string, ...args: string[]): Promise<void> {
+  await resetUsers();
+  console.log("Database reset complete.");
+}
+
 function registerCommand(registry: CommandsRegistry, cmdName: string, handler: CommandHandler): void {
   registry[cmdName] = handler;
 }
@@ -56,6 +61,7 @@ async function main() {
   const registry: CommandsRegistry = {};
   registerCommand(registry, "login", handlerLogin);
   registerCommand(registry, "register", handlerRegister);
+  registerCommand(registry, "reset", handlerReset);
 
   const inputArgs = process.argv.slice(2);
   if (inputArgs.length === 0) {
